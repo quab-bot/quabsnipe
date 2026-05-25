@@ -27,3 +27,13 @@ anchorpy==0.20.1
 
 # Telegram user session (signal automation)
 telethon>=1.36.0
+
+# Solana base58 encoding
+base58>=2.1.1
+
+# Cryptography (needed by solana/solders)
+cryptography>=41.0.0
+
+# Construct (needed by anchorpy)
+construct>=2.10.0
+construct-typing>=0.5.2
