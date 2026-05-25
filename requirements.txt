@@ -1,0 +1,29 @@
+# Solana Sniper Bot — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Async HTTP client
+aiohttp>=3.9.5
+
+# WebSocket client for Helius
+# NOTE: solana 0.35.0 requires websockets>=9.0,<12.0
+websockets>=10.0,<12.0
+
+# Environment variables
+python-dotenv>=1.0.1
+
+# WHOIS domain lookup (Filter 7)
+python-whois>=0.9.4
+
+# Telegram bot (Part 3)
+python-telegram-bot==21.3
+
+# Solana Python SDK (Part 2 — execution)
+solana==0.35.0
+solders==0.21.0
+anchorpy==0.20.1
+
+# Process manager helper
+# (PM2 is installed separately via npm: npm install -g pm2)
+
+# Telegram user session (signal automation)
+telethon>=1.36.0

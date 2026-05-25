@@ -1,0 +1,16 @@
+[build]
+builder = "NIXPACKS"
+
+[build.nixpacksPlan.phases.setup]
+nixPkgs = ["python311", "python311Packages.pip"]
+
+[build.nixpacksPlan.phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[deploy]
+startCommand = "python setup_db.py && python main.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[deploy.healthcheck]
+# Signal bots don't expose HTTP — Railway will monitor process exit code
