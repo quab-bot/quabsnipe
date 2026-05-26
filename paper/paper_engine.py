@@ -82,7 +82,15 @@ class PaperEngine:
 
         bal = paper_get_balance()
         if bal < PAPER_POSITION_USD:
-            return {"success": False, "reason": f"Paper balance too low (${bal:.2f})"}
+            # Auto-refill — top up to $40 so data collection never stops
+            logger.info(f"📋 PAPER auto-refill: ${bal:.2f} → ${PAPER_STARTING_BALANCE:.2f}")
+            paper_update_balance(PAPER_STARTING_BALANCE)
+            bal = PAPER_STARTING_BALANCE
+            if self._on_notify:
+                await self._on_notify("paper_refill", {
+                    "old_balance": bal,
+                    "new_balance": PAPER_STARTING_BALANCE,
+                })
 
         entry_price = await self._get_price(mint)
         if not entry_price or entry_price <= 0:

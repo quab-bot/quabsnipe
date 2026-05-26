@@ -315,6 +315,11 @@ class SignalBot:
                     pnl_pct=data["pnl_pct"], peak_mult=data["peak_mult"],
                     tp_levels=data["tp_levels"], balance=data["balance"],
                 )
+            elif event_type == "paper_refill":
+                await self.telegram.notify_paper_refill(
+                    old_balance=data["old_balance"],
+                    new_balance=data["new_balance"],
+                )
             elif event_type == "paper_post_check":
                 await self.telegram.notify_paper_post_check(
                     name=data["name"], symbol=data["symbol"],

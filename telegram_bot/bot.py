@@ -1485,6 +1485,15 @@ class TelegramBot:
         )
         await self._to(chat_id, msg, important=True)
 
+    async def notify_paper_refill(self, old_balance: float, new_balance: float):
+        await self._send(
+            f"♻️ <b>PAPER BALANCE REFILLED</b>\n"
+            f"──────────────────────────\n"
+            f"Was: ${old_balance:.2f}\n"
+            f"Now: ${new_balance:.2f}\n"
+            f"Data collection continues automatically.",
+        )
+
     async def notify_paper_post_check(self, name: str, symbol: str, hours: int,
                                         exit_price: float, current_price: float,
                                         pct_change: float, close_reason: str,
