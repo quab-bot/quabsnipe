@@ -1163,13 +1163,13 @@ class TelegramBot:
 
         bal        = s.get("balance", 0)
         starting   = s.get("starting", 40)
-        total_pnl  = s.get("total_pnl", 0)
-        total      = s.get("total_trades", 0)
-        wins       = s.get("wins", 0)
-        losses     = s.get("losses", 0)
-        win_rate   = s.get("win_rate", 0)
-        open_pos   = s.get("open_positions", 0)
-        by_ch      = s.get("by_channel", {})
+        total_pnl  = float(s.get("total_pnl") or 0)
+        total      = int(s.get("total_trades") or 0)
+        wins       = int(s.get("wins") or 0)
+        losses     = int(s.get("losses") or 0)
+        win_rate   = float(s.get("win_rate") or 0)
+        open_pos   = int(s.get("open_positions") or 0)
+        by_ch      = s.get("by_channel") or {}
         best       = s.get("best_trade")
         worst      = s.get("worst_trade")
 

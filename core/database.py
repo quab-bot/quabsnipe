@@ -494,12 +494,15 @@ def paper_get_stats() -> dict:
         conn.close()
 
     stats = dict(row) if row else {}
+    # Coerce all numeric fields to avoid None comparison errors
+    for k in ("total_trades","open_positions","wins","losses","total_pnl","avg_pnl_pct","best_peak","avg_hold_hours"):
+        stats[k] = float(stats.get(k) or 0)
     stats["by_channel"] = {r["channel"]: dict(r) for r in by_ch}
     stats["best_trade"] = dict(best) if best else None
     stats["worst_trade"] = dict(worst) if worst else None
-    total = stats.get("total_trades", 0) or 0
-    wins  = stats.get("wins", 0) or 0
-    closed = total - (stats.get("open_positions", 0) or 0)
+    total  = int(stats.get("total_trades", 0))
+    wins   = int(stats.get("wins", 0))
+    closed = total - int(stats.get("open_positions", 0))
     stats["win_rate"] = (wins / closed * 100) if closed > 0 else 0
     return stats
 
