@@ -280,6 +280,332 @@ def _is_stale(cached_at: str, max_age_minutes: int) -> bool:
         return True
 
 
+# ── Paper trading tables ───────────────────────────────────────────────────────
+
+def init_paper_tables():
+    """Create paper trading tables — called at startup."""
+    with _lock:
+        conn = get_conn()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                mint                TEXT NOT NULL,
+                name                TEXT,
+                symbol              TEXT,
+                channel             TEXT,
+                score               INTEGER DEFAULT 0,
+                entry_price_usd     REAL,
+                entry_time          TEXT,
+                usd_spent           REAL,
+                tokens_held         REAL,
+                phase               INTEGER DEFAULT 1,
+                highest_price_usd   REAL,
+                fixed_stop_price    REAL,
+                trailing_stop_price REAL DEFAULT 0,
+                tp_levels_hit       TEXT DEFAULT '[]',
+                total_realised_usd  REAL DEFAULT 0,
+                extended_at         TEXT,
+                peak_multiplier     REAL DEFAULT 1,
+                status              TEXT DEFAULT 'open',
+                close_reason        TEXT,
+                close_price_usd     REAL,
+                final_pnl_usd       REAL,
+                final_pnl_pct       REAL,
+                hold_hours          REAL,
+                closed_at           TEXT,
+                price_1h_after      REAL,
+                price_2h_after      REAL,
+                price_24h_after     REAL,
+                pct_1h_after        REAL,
+                pct_2h_after        REAL,
+                pct_24h_after       REAL,
+                post_check_done     INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS paper_ledger (
+                id          INTEGER PRIMARY KEY CHECK (id = 1),
+                balance     REAL DEFAULT 40.0,
+                starting    REAL DEFAULT 40.0,
+                created_at  TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS paper_rug_memory (
+                mint        TEXT PRIMARY KEY,
+                reason      TEXT,
+                added_at    TEXT
+            );
+
+            INSERT OR IGNORE INTO paper_ledger (id, balance, starting, created_at)
+            VALUES (1, 40.0, 40.0, datetime('now'));
+        """)
+        conn.commit()
+        conn.close()
+
+
+def paper_get_balance() -> float:
+    with _lock:
+        conn = get_conn()
+        row = conn.execute("SELECT balance FROM paper_ledger WHERE id = 1").fetchone()
+        conn.close()
+    return float(row["balance"]) if row else 40.0
+
+
+def paper_get_starting() -> float:
+    with _lock:
+        conn = get_conn()
+        row = conn.execute("SELECT starting FROM paper_ledger WHERE id = 1").fetchone()
+        conn.close()
+    return float(row["starting"]) if row else 40.0
+
+
+def paper_update_balance(new_balance: float):
+    with _lock:
+        conn = get_conn()
+        conn.execute("UPDATE paper_ledger SET balance = ? WHERE id = 1", (new_balance,))
+        conn.commit()
+        conn.close()
+
+
+def paper_reset(starting: float = 40.0):
+    with _lock:
+        conn = get_conn()
+        conn.executescript(f"""
+            DELETE FROM paper_trades;
+            DELETE FROM paper_rug_memory;
+            UPDATE paper_ledger SET balance = {starting}, starting = {starting},
+                created_at = datetime('now') WHERE id = 1;
+        """)
+        conn.commit()
+        conn.close()
+
+
+def paper_open_trade(mint: str, name: str, symbol: str, channel: str, score: int,
+                     entry_price: float, usd_spent: float, tokens_held: float,
+                     fixed_stop_price: float) -> int:
+    with _lock:
+        conn = get_conn()
+        cur = conn.execute("""
+            INSERT INTO paper_trades
+            (mint, name, symbol, channel, score, entry_price_usd, entry_time,
+             usd_spent, tokens_held, highest_price_usd, fixed_stop_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (mint, name, symbol, channel, score, entry_price, _now(),
+              usd_spent, tokens_held, entry_price, fixed_stop_price))
+        conn.commit()
+        trade_id = cur.lastrowid
+        conn.close()
+    return trade_id
+
+
+def paper_update_trade(trade_id: int, **kwargs):
+    if not kwargs:
+        return
+    with _lock:
+        conn = get_conn()
+        sets = ", ".join(f"{k} = ?" for k in kwargs)
+        vals = list(kwargs.values()) + [trade_id]
+        conn.execute(f"UPDATE paper_trades SET {sets} WHERE id = ?", vals)
+        conn.commit()
+        conn.close()
+
+
+def paper_close_trade(trade_id: int, close_reason: str, close_price: float,
+                      pnl_usd: float, pnl_pct: float, hold_hours: float,
+                      peak_multiplier: float, total_realised_usd: float,
+                      tp_levels_hit: list):
+    with _lock:
+        conn = get_conn()
+        conn.execute("""
+            UPDATE paper_trades SET
+                status = 'closed',
+                close_reason = ?,
+                close_price_usd = ?,
+                final_pnl_usd = ?,
+                final_pnl_pct = ?,
+                hold_hours = ?,
+                peak_multiplier = ?,
+                total_realised_usd = ?,
+                tp_levels_hit = ?,
+                closed_at = ?
+            WHERE id = ?
+        """, (close_reason, close_price, pnl_usd, pnl_pct, hold_hours,
+              peak_multiplier, total_realised_usd,
+              json.dumps(tp_levels_hit), _now(), trade_id))
+        conn.commit()
+        conn.close()
+
+
+def paper_get_open_trades() -> list[dict]:
+    with _lock:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT * FROM paper_trades WHERE status = 'open'"
+        ).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def paper_get_all_trades() -> list[dict]:
+    with _lock:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT * FROM paper_trades ORDER BY entry_time DESC"
+        ).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def paper_get_stats() -> dict:
+    with _lock:
+        conn = get_conn()
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) as open_positions,
+                SUM(CASE WHEN final_pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN final_pnl_usd <= 0 AND status='closed' THEN 1 ELSE 0 END) as losses,
+                SUM(COALESCE(final_pnl_usd, 0)) as total_pnl,
+                AVG(CASE WHEN final_pnl_pct IS NOT NULL THEN final_pnl_pct END) as avg_pnl_pct,
+                MAX(peak_multiplier) as best_peak,
+                AVG(hold_hours) as avg_hold_hours
+            FROM paper_trades
+        """).fetchone()
+
+        by_ch = conn.execute("""
+            SELECT channel,
+                COUNT(*) as trades,
+                SUM(CASE WHEN final_pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(COALESCE(final_pnl_usd, 0)) as pnl
+            FROM paper_trades
+            WHERE status = 'closed'
+            GROUP BY channel
+        """).fetchall()
+
+        best = conn.execute("""
+            SELECT * FROM paper_trades WHERE status='closed'
+            ORDER BY final_pnl_pct DESC LIMIT 1
+        """).fetchone()
+
+        worst = conn.execute("""
+            SELECT * FROM paper_trades WHERE status='closed'
+            ORDER BY final_pnl_pct ASC LIMIT 1
+        """).fetchone()
+
+        conn.close()
+
+    stats = dict(row) if row else {}
+    stats["by_channel"] = {r["channel"]: dict(r) for r in by_ch}
+    stats["best_trade"] = dict(best) if best else None
+    stats["worst_trade"] = dict(worst) if worst else None
+    total = stats.get("total_trades", 0) or 0
+    wins  = stats.get("wins", 0) or 0
+    closed = total - (stats.get("open_positions", 0) or 0)
+    stats["win_rate"] = (wins / closed * 100) if closed > 0 else 0
+    return stats
+
+
+def paper_get_trades_needing_check() -> list[dict]:
+    """Get closed trades that need post-close price checks."""
+    with _lock:
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT * FROM paper_trades
+            WHERE status = 'closed'
+            AND post_check_done = 0
+            AND closed_at IS NOT NULL
+            AND (
+                (price_1h_after IS NULL  AND (julianday('now') - julianday(closed_at)) * 24 >= 1)
+                OR
+                (price_2h_after IS NULL  AND (julianday('now') - julianday(closed_at)) * 24 >= 2)
+                OR
+                (price_24h_after IS NULL AND (julianday('now') - julianday(closed_at)) * 24 >= 24)
+            )
+        """).fetchall()
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def paper_update_post_check(trade_id: int, hours: int, price: float, pct: float):
+    """Record post-close price at 1h, 2h, or 24h."""
+    col_price = f"price_{hours}h_after"
+    col_pct   = f"pct_{hours}h_after"
+    with _lock:
+        conn = get_conn()
+        # Check if all three are now done
+        conn.execute(
+            f"UPDATE paper_trades SET {col_price} = ?, {col_pct} = ? WHERE id = ?",
+            (price, pct, trade_id)
+        )
+        # Mark fully done once 24h check is recorded
+        if hours == 24:
+            conn.execute(
+                "UPDATE paper_trades SET post_check_done = 1 WHERE id = ?",
+                (trade_id,)
+            )
+        conn.commit()
+        conn.close()
+
+
+def paper_is_rugged(mint: str) -> bool:
+    with _lock:
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT mint FROM paper_rug_memory WHERE mint = ?", (mint,)
+        ).fetchone()
+        conn.close()
+    return row is not None
+
+
+def paper_add_rug(mint: str, reason: str):
+    with _lock:
+        conn = get_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO paper_rug_memory (mint, reason, added_at)
+            VALUES (?, ?, ?)
+        """, (mint, reason, _now()))
+        conn.commit()
+        conn.close()
+
+
+def paper_export_csv() -> str:
+    """Export all paper trades as CSV string for analysis."""
+    with _lock:
+        conn = get_conn()
+        rows = conn.execute("""
+            SELECT
+                mint, name, symbol, channel, score,
+                entry_price_usd, entry_time, usd_spent,
+                peak_multiplier, tp_levels_hit,
+                close_reason, close_price_usd,
+                final_pnl_usd, final_pnl_pct, hold_hours, closed_at,
+                price_1h_after, pct_1h_after,
+                price_2h_after, pct_2h_after,
+                price_24h_after, pct_24h_after,
+                status
+            FROM paper_trades
+            ORDER BY entry_time ASC
+        """).fetchall()
+        conn.close()
+
+    if not rows:
+        return "No paper trades recorded yet."
+
+    headers = list(rows[0].keys())
+    lines   = [",".join(headers)]
+    for r in rows:
+        vals = []
+        for h in headers:
+            v = r[h]
+            if v is None:
+                vals.append("")
+            elif isinstance(v, str) and "," in v:
+                vals.append(f'"{v}"')
+            else:
+                vals.append(str(v))
+        lines.append(",".join(vals))
+    return "\n".join(lines)
+
+
 def init_analytics_table():
     """Add analytics table — called at startup."""
     with _lock:

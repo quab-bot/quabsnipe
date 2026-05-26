@@ -103,7 +103,7 @@ def _esc(text: str) -> str:
 class TelegramBot:
     def __init__(self, get_positions_fn, get_balance_fn, sell_all_fn,
                  set_stop_fn, pause_fn, resume_fn, is_paused_fn,
-                 manual_trade_fn=None, paper_stats_fn=None, paper_reset_fn=None):
+                 manual_trade_fn=None, paper_stats_fn=None, paper_reset_fn=None, paper_export_fn=None):
         self._get_positions  = get_positions_fn
         self._get_balance    = get_balance_fn
         self._sell_all       = sell_all_fn
@@ -114,6 +114,7 @@ class TelegramBot:
         self._manual_trade   = manual_trade_fn
         self._paper_stats    = paper_stats_fn
         self._paper_reset    = paper_reset_fn
+        self._paper_export   = paper_export_fn
         self._bot           = None
         self._app           = None
         self._enabled       = False
@@ -420,6 +421,7 @@ class TelegramBot:
             "/setmode [paper|live]— switch trading mode live\n"
             "/paper               — paper trading stats + P&amp;L\n"
             "/paper reset         — reset paper balance to $40\n"
+            "/paper export        — download all paper trades as CSV\n"
             "/setstop [%]         — set trailing stop % (e.g. /setstop 25)\n"
             "/blacklist [CA]      — block a token forever\n"
             "/unblacklist [CA]    — remove from blacklist\n\n"
@@ -1118,6 +1120,27 @@ class TelegramBot:
         /paper          — show paper trading stats
         /paper reset    — reset paper balance back to $40
         """
+        if args and args[0].lower() == "export":
+            if not self._paper_export:
+                await self._to(chat_id, "Export not available.")
+                return
+            csv = await self._paper_export() if asyncio.iscoroutinefunction(self._paper_export) else self._paper_export()
+            if csv.startswith("No paper"):
+                await self._to(chat_id, csv)
+                return
+            # Send as file
+            import io
+            from telegram import InputFile
+            ts  = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+            bio = io.BytesIO(csv.encode())
+            bio.name = f"paper_trades_{ts}.csv"
+            await self._app.bot.send_document(
+                chat_id=chat_id,
+                document=InputFile(bio, filename=bio.name),
+                caption=f"📊 Paper trades export — {ts} UTC",
+            )
+            return
+
         if args and args[0].lower() == "reset":
             if self._paper_reset:
                 await self._paper_reset()
@@ -1460,6 +1483,24 @@ class TelegramBot:
             f"/trade {ca} 5  — buy $5 worth"
         )
         await self._to(chat_id, msg, important=True)
+
+    async def notify_paper_post_check(self, name: str, symbol: str, hours: int,
+                                        exit_price: float, current_price: float,
+                                        pct_change: float, close_reason: str,
+                                        original_pnl_pct: float):
+        emoji  = "📈" if pct_change > 0 else "📉"
+        missed = "would have gained more" if pct_change > 0 else "glad we exited"
+        await self._send(
+            f"📊 <b>POST-TRADE CHECK ({hours}h after close)</b>\n"
+            f"──────────────────────────\n"
+            f"<b>{_esc(name)} (${_esc(symbol)})</b>\n"
+            f"Closed via: {close_reason}\n"
+            f"Our P&amp;L was: {original_pnl_pct:+.1f}%\n"
+            f"──────────────────────────\n"
+            f"Exit price:   ${exit_price:.8f}\n"
+            f"Price now:    ${current_price:.8f}\n"
+            f"{emoji} Since exit: {pct_change:+.1f}% — {missed}",
+        )
 
     # ── Auth ───────────────────────────────────────────────────────────────────
 

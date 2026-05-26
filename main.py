@@ -13,7 +13,7 @@ from utils.models import FilterResult
 from trader.trade_coordinator import TradeCoordinator
 from trader.position_manager import PositionManager
 from trader.wallet_manager import get_sol_balance
-from core.database import init_db, get_daily_pnl, init_analytics_table
+from core.database import init_db, get_daily_pnl, init_analytics_table, init_paper_tables, paper_export_csv
 from core.analytics import get_analytics_summary, get_rejection_breakdown
 from core.trade_logger import init_trade_tables
 from core.channel_tracker import init_channel_tables
@@ -41,6 +41,7 @@ class SignalBot:
     def __init__(self):
         init_db()
         init_analytics_table()
+        init_paper_tables()
         init_trade_tables()
         init_channel_tables()
         init_rejected_tables()
@@ -71,6 +72,7 @@ class SignalBot:
             manual_trade_fn  = self._manual_trade,
             paper_stats_fn   = self.paper_engine.get_stats,
             paper_reset_fn   = self._paper_reset,
+            paper_export_fn  = self._paper_export,
         )
 
     # ── Signal monitor ─────────────────────────────────────────────────────────
@@ -285,6 +287,9 @@ class SignalBot:
     async def _paper_reset(self):
         self.paper_engine.reset()
 
+    async def _paper_export(self) -> str:
+        return paper_export_csv()
+
     async def _on_paper_event(self, event_type: str, data: dict):
         """Forward paper trading events to Telegram."""
         if not self.telegram:
@@ -309,6 +314,15 @@ class SignalBot:
                     reason=data["reason"], pnl_usd=data["pnl_usd"],
                     pnl_pct=data["pnl_pct"], peak_mult=data["peak_mult"],
                     tp_levels=data["tp_levels"], balance=data["balance"],
+                )
+            elif event_type == "paper_post_check":
+                await self.telegram.notify_paper_post_check(
+                    name=data["name"], symbol=data["symbol"],
+                    hours=data["hours"], exit_price=data["exit_price"],
+                    current_price=data["current_price"],
+                    pct_change=data["pct_change"],
+                    close_reason=data["close_reason"],
+                    original_pnl_pct=data["original_pnl_pct"],
                 )
         except Exception as e:
             logger.debug(f"Paper event notify error: {e}")
