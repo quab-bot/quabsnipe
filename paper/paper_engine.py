@@ -18,6 +18,7 @@ logger = get_logger("paper_engine")
 
 PAPER_FILE             = Path("data/paper_positions.json")
 PAPER_LEDGER           = Path("data/paper_ledger.json")
+PAPER_RUG_MEMORY       = Path("data/paper_rug_memory.json")
 PAPER_FILE.parent.mkdir(exist_ok=True)
 
 PAPER_STARTING_BALANCE = 40.0
@@ -108,10 +109,14 @@ class PaperPosition:
 class PaperEngine:
     def __init__(self, on_notify=None):
         self._positions: dict[str, PaperPosition] = {}
-        self._on_notify = on_notify
-        self._running   = False
-        self._ledger    = self._load_ledger()
+        self._on_notify  = on_notify
+        self._running    = False
+        self._ledger     = self._load_ledger()
         self._load_positions()
+        # Track all mints traded this session to prevent double entry
+        self._traded: set[str] = {m for m in self._positions}
+        # Persistent rug memory — never re-trade a token that closed at a loss
+        self._rug_memory: set[str] = self._load_rug_memory()
 
     # ── Ledger ─────────────────────────────────────────────────────────────────
 
@@ -141,6 +146,9 @@ class PaperEngine:
 
     def reset(self):
         self._positions.clear()
+        self._traded.clear()
+        self._rug_memory.clear()
+        self._save_rug_memory()
         self._ledger = {
             "balance":    PAPER_STARTING_BALANCE,
             "starting":   PAPER_STARTING_BALANCE,
@@ -157,8 +165,12 @@ class PaperEngine:
                          channel: str, score: int) -> dict:
         open_positions = [p for p in self._positions.values() if not p.closed]
 
-        if any(p.mint == mint for p in open_positions):
-            return {"success": False, "reason": "Already have open position in this token"}
+        if mint in self._traded:
+            return {"success": False, "reason": "Already traded this token in this session"}
+
+        if mint in self._rug_memory:
+            logger.info(f"🚫 PAPER RUG MEMORY: {mint[:16]} — previously rugged, skipping")
+            return {"success": False, "reason": "Token previously rugged — skipped by rug memory"}
 
         if len(open_positions) >= config.MAX_OPEN_TRADES:
             return {"success": False, "reason": f"Max {config.MAX_OPEN_TRADES} paper positions open"}
@@ -179,6 +191,7 @@ class PaperEngine:
 
         self._ledger["balance"] -= PAPER_POSITION_USD
         self._positions[mint]    = pos
+        self._traded.add(mint)
         self._save_positions()
         self._save_ledger()
 
@@ -359,6 +372,11 @@ class PaperEngine:
         self._save_positions()
         self._save_ledger()
 
+        # Remember rugged tokens — don't re-trade them
+        if pnl_usd < 0 or reason in ("stop_loss_phase1", "24hr_check_failed"):
+            self._rug_memory.add(pos.mint)
+            self._save_rug_memory()
+
         emoji = "✅" if pnl_usd > 0 else "❌"
         logger.info(
             f"{emoji} PAPER CLOSED | {pos.symbol} | {reason} | "
@@ -477,6 +495,26 @@ class PaperEngine:
         return [p for p in self._positions.values() if not p.closed]
 
     # ── Persistence ────────────────────────────────────────────────────────────
+
+    def _load_rug_memory(self) -> set:
+        if PAPER_RUG_MEMORY.exists():
+            try:
+                with open(PAPER_RUG_MEMORY) as f:
+                    data = json.load(f)
+                    mints = set(data.get("rugged", []))
+                    if mints:
+                        logger.info(f"Paper rug memory: {len(mints)} token(s) blocked")
+                    return mints
+            except Exception:
+                pass
+        return set()
+
+    def _save_rug_memory(self):
+        try:
+            with open(PAPER_RUG_MEMORY, "w") as f:
+                json.dump({"rugged": list(self._rug_memory)}, f, indent=2)
+        except Exception as e:
+            logger.error(f"Save rug memory error: {e}")
 
     def _save_positions(self):
         try:

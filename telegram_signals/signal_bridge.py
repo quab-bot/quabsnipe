@@ -24,7 +24,7 @@ _HONEYPOT_AMOUNTS = ["1000000000", "100000000", "10000000", "1000000"]
 # Dedup window: track when we first saw each CA and from which channels
 # {mint: {"first_seen": float, "channels": set, "data": SignalData}}
 _pending_dedup: dict[str, dict] = {}
-_DEDUP_WINDOW_SECS = 60
+_DEDUP_WINDOW_SECS = 1800  # 30 minutes — prevents same CA trading twice from different channels
 
 
 class SignalBridge:
