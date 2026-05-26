@@ -1119,6 +1119,7 @@ class TelegramBot:
         """
         /paper          — show paper trading stats
         /paper reset    — reset paper balance back to $40
+        /paper export   — download all trades as CSV
         """
         if args and args[0].lower() == "export":
             if not self._paper_export:
@@ -1199,7 +1200,7 @@ class TelegramBot:
         if worst:
             msg += f"Worst: {worst['symbol']} {worst['pnl_pct']:+.1f}%\n"
 
-        msg += "──────────────────────────\n/paper reset — restart with $40"
+        msg += "──────────────────────────\n/paper reset — restart with $40\n/paper export — download CSV"
 
         await self._to(chat_id, msg)
 
