@@ -1196,9 +1196,9 @@ class TelegramBot:
 
         if best:
             msg += f"──────────────────────────\n"
-            msg += f"Best:  {best['symbol']} {best['pnl_pct']:+.1f}% (peak {best.get('peak_mult', 0):.1f}x)\n"
+            msg += f"Best:  {best.get('symbol','?')} {float(best.get('final_pnl_pct') or 0):+.1f}% (peak {float(best.get('peak_multiplier') or 0):.1f}x)\n"
         if worst:
-            msg += f"Worst: {worst['symbol']} {worst['pnl_pct']:+.1f}%\n"
+            msg += f"Worst: {worst.get('symbol','?')} {float(worst.get('final_pnl_pct') or 0):+.1f}%\n"
 
         msg += "──────────────────────────\n/paper reset — restart with $40\n/paper export — download CSV"
 
