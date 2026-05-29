@@ -1764,16 +1764,35 @@ class TelegramBot:
 
     async def notify_restart(self, sol: float, usd: float, open_positions: int,
                               mode: str, channels: list):
-        ch_str = ", ".join(f"@{c}" for c in channels) if channels else "none"
+        # Clean channel names — strip any accidental "SIGNAL_CHANNELS=" prefix
+        clean = []
+        for c in (channels or []):
+            c = c.strip()
+            if "=" in c:
+                c = c.split("=")[-1].strip()
+            if c:
+                clean.append(c)
+
+        # Alias map for display — clickable links
+        alias = {
+            "solearlytrending":    "Solana Early Trending",
+            "soltrenchtrending":   "Trench Trending",
+            "BlocApe_Signal_Calls":"BlocApe Calls",
+            "trenchfree":          "TrenchFree",
+        }
+        ch_lines = "\n".join(
+            f"  • <a href='https://t.me/{c}'>{alias.get(c, c)}</a>" for c in clean
+        ) if clean else "  none"
+
         pos_str = f"{open_positions} recovered" if open_positions else "none"
         await self._send(
             f"🤖 <b>QUABSNIPE RESTARTED</b>\n"
             f"──────────────────────────\n"
-            f"Mode:       {'📄 Paper' if mode == 'PAPER' else '💸 Live'}\n"
-            f"Balance:    {sol:.4f} SOL (${usd:.2f})\n"
-            f"Positions:  {pos_str}\n"
-            f"Channels:   {ch_str}\n"
-            f"Time:       {_t()}\n"
+            f"Mode:      {'📄 Paper' if mode == 'PAPER' else '💸 Live'}\n"
+            f"Balance:   {sol:.4f} SOL (${usd:.2f})\n"
+            f"Positions: {pos_str}\n"
+            f"Channels:\n{ch_lines}\n"
+            f"Time:      {_t()}\n"
             "/help — all commands",
             important=True,
         )

@@ -124,11 +124,20 @@ SIGNAL_TRADING = SIGNAL_LIVE             # alias
 SIGNAL_ENABLED = True                    # channel listener always runs — controlled by SIGNAL_TRADING for live/paper
 
 # ── Signal channels list (comma-separated, overridable via /addchannel) ─────────
-SIGNAL_CHANNELS = [
-    c.strip() for c in
-    os.getenv("SIGNAL_CHANNELS", f"{SIGNAL_CHANNEL},{SIGNAL_CHANNEL_2},{SIGNAL_CHANNEL_3},{SIGNAL_CHANNEL_4}").split(",")
-    if c.strip()
-]
+def _parse_channels(raw: str) -> list:
+    """Parse channel list — strips accidental KEY=value prefix from Railway vars."""
+    channels = []
+    for c in raw.split(","):
+        c = c.strip()
+        if "=" in c:
+            c = c.split("=")[-1].strip()
+        if c:
+            channels.append(c)
+    return channels
+
+SIGNAL_CHANNELS = _parse_channels(
+    os.getenv("SIGNAL_CHANNELS", f"{SIGNAL_CHANNEL},{SIGNAL_CHANNEL_2},{SIGNAL_CHANNEL_3},{SIGNAL_CHANNEL_4}")
+)
 
 # ── Apply runtime overrides (from /sethelius, /setsignal etc saved to JSON) ──────
 def _apply_runtime_overrides():
