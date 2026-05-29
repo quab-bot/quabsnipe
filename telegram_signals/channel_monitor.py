@@ -11,7 +11,7 @@ from telethon import TelegramClient, events
 
 from utils.logger import get_logger
 from telegram_signals.signal_parser import (
-    SignalData, parse_channel_signal,
+    SignalData, parse_channel_signal, parse_simple_ca_signal, parse_simple_ca_signal,
     enrich_signal_from_bot, extract_ca_from_bot_response,
 )
 
@@ -144,14 +144,20 @@ class ChannelMonitor:
         )
         self._stats["detected"] += 1
 
-        signal_data = parse_channel_signal(text)
+        # Choose parser based on channel — simple channels just post CA + optional links
+        _SIMPLE_CA_CHANNELS = {"blocape_signal_calls", "bloc_ape_calls", "blocapecalls", "trenchfree"}
+        if self.channel_username.lower().replace("-", "_") in _SIMPLE_CA_CHANNELS:
+            signal_data = parse_simple_ca_signal(text)
+        else:
+            signal_data = parse_channel_signal(text)
+
         if signal_data:
             signal_data.channel = self.channel_username
             asyncio.create_task(self._process(msg, signal_data))
         else:
             logger.debug(
                 f"[SKIPPED|@{self.channel_username}] msg_id={msg.id} — "
-                f"not recognized as a signal (no MC/Liq/Hodls fields found)"
+                f"not recognized as a signal"
             )
 
     def _get_text(self, msg) -> str:

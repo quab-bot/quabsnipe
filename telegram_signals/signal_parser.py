@@ -246,6 +246,73 @@ def parse_channel_signal(text: str) -> 'SignalData | None':
     return d
 
 
+def parse_simple_ca_signal(text: str) -> 'SignalData | None':
+    """
+    Lightweight parser for channels like BlocApe that post just a CA,
+    optionally with a name and social links. No MC/Liq data in the message.
+    We fetch everything from DexScreener ourselves after getting the CA.
+    Skips ETH addresses automatically.
+    """
+    if not text:
+        return None
+
+    ETH = re.compile(r'0x[a-fA-F0-9]{40}')
+    B58 = re.compile(r'\b[1-9A-HJ-NP-Za-km-z]{32,44}\b')
+
+    ca = None
+
+    # 1. DexScreener Solana URL
+    m = re.search(r'dexscreener\.com/solana/([1-9A-HJ-NP-Za-km-z]{32,44})', text)
+    if m:
+        ca = m.group(1)
+
+    # 2. Bare CA on its own line (check last 8 lines — CA is usually at the bottom)
+    if not ca:
+        lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+        for line in reversed(lines[-8:]):
+            if ETH.match(line):
+                continue
+            if B58.fullmatch(line):
+                ca = line
+                break
+
+    # 3. pump.fun CA anywhere in text
+    if not ca:
+        m = re.search(r'[1-9A-HJ-NP-Za-km-z]{32,44}pump', text)
+        if m:
+            ca = m.group(0)
+
+    # 4. Any long base58 string
+    if not ca:
+        m = re.search(r'\b[1-9A-HJ-NP-Za-km-z]{43,44}\b', text)
+        if m:
+            ca = m.group(0)
+
+    if not ca or ca.startswith('0x'):
+        return None
+
+    # Extract token name — first short non-URL non-CA line
+    name = ""
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+    for line in lines[:5]:
+        if line.startswith('http'):
+            continue
+        if B58.fullmatch(line):
+            continue
+        if ETH.match(line):
+            continue
+        if 2 < len(line) < 60:
+            name = line
+            break
+
+    d = SignalData(raw_text=text)
+    d.mint_address = ca
+    d.token_name   = name or ca[:8]
+    d.token_symbol = name.split()[0].upper()[:8] if name else ca[:6].upper()
+    d.source       = "simple_ca"
+    return d
+
+
 def enrich_signal_from_bot(data: SignalData, bot_text: str) -> SignalData:
     """Enrich with bot response data (more current numbers)."""
     data.source = "bot_response"

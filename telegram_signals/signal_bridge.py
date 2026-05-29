@@ -83,6 +83,10 @@ class SignalBridge:
         for k in expired:
             _pending_dedup.pop(k, None)
 
+        # For simple CA signals (BlocApe-style) — enrich from DexScreener
+        if data.source == "simple_ca":
+            data = await self._enrich_from_dexscreener(data)
+
         # Fetch real token name if missing
         if not data.token_name:
             data.token_name = await _fetch_token_name(mint) or ""
@@ -289,6 +293,42 @@ class SignalBridge:
                 await self.telegram.notify_trade_blocked(
                     name=name, ca=mint, reason=reason
                 )
+
+    async def _enrich_from_dexscreener(self, data: "SignalData") -> "SignalData":
+        """Fetch MC, liq, age, vol from DexScreener for simple CA signals."""
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    f"https://api.dexscreener.com/latest/dex/tokens/{data.mint_address}",
+                    timeout=aiohttp.ClientTimeout(total=8)
+                ) as resp:
+                    if resp.status == 200:
+                        j = await resp.json()
+                        pairs = j.get("pairs") or []
+                        if pairs:
+                            p = pairs[0]
+                            from datetime import datetime, timezone
+                            created = p.get("pairCreatedAt", 0) or 0
+                            age_sec = (datetime.now(timezone.utc).timestamp() - created / 1000)
+                            data.mc_usd       = float(p.get("marketCap") or p.get("fdv") or 0)
+                            data.liq_usd      = float((p.get("liquidity") or {}).get("usd") or 0)
+                            data.vol_1h_usd   = float((p.get("volume") or {}).get("h1") or 0)
+                            data.vol_5m_usd   = float((p.get("volume") or {}).get("m5") or 0)
+                            data.age_hours    = round(age_sec / 3600, 2)
+                            data.age_minutes  = round(age_sec / 60, 1)
+                            name = (p.get("baseToken") or {}).get("name", "")
+                            sym  = (p.get("baseToken") or {}).get("symbol", "")
+                            if name: data.token_name   = name
+                            if sym:  data.token_symbol  = sym
+                            logger.info(
+                                f"📊 DexScreener enrich | {data.token_name} | "
+                                f"MC: ${data.mc_usd:,.0f} | Liq: ${data.liq_usd:,.0f} | "
+                                f"Age: {data.age_hours:.1f}h"
+                            )
+        except Exception as e:
+            logger.debug(f"DexScreener enrich error: {e}")
+        return data
 
     async def _is_honeypot(self, mint: str) -> tuple[bool, str]:
         last_error      = ""

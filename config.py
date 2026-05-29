@@ -114,6 +114,8 @@ TELEGRAM_PHONE     = os.getenv("TELEGRAM_PHONE", "")
 # Signal channel settings
 SIGNAL_CHANNEL     = "solearlytrending"
 SIGNAL_CHANNEL_2   = "soltrenchtrending"
+SIGNAL_CHANNEL_3   = "BlocApe_Signal_Calls"
+SIGNAL_CHANNEL_4   = "trenchfree"
 SIGNAL_BOT         = "Soul_Sniper_Bot"
 # ON = LIVE (real signal trades), OFF = PAPER (logs only) — default is OFF (safe)
 _signal_raw    = os.getenv("SIGNAL_TRADING", "off").strip().lower()
@@ -124,7 +126,7 @@ SIGNAL_ENABLED = True                    # channel listener always runs — cont
 # ── Signal channels list (comma-separated, overridable via /addchannel) ─────────
 SIGNAL_CHANNELS = [
     c.strip() for c in
-    os.getenv("SIGNAL_CHANNELS", f"{SIGNAL_CHANNEL},{SIGNAL_CHANNEL_2}").split(",")
+    os.getenv("SIGNAL_CHANNELS", f"{SIGNAL_CHANNEL},{SIGNAL_CHANNEL_2},{SIGNAL_CHANNEL_3},{SIGNAL_CHANNEL_4}").split(",")
     if c.strip()
 ]
 
