@@ -31,9 +31,9 @@ MAX_TRADE_USD     = float(os.getenv("MAX_TRADE_USD", "500"))
 # IMPROVED: Phase 2 (trailing) triggers earlier at +15% gain instead of +30%
 # Reasoning: many meme coins pump 20% then dump — catching the trail sooner
 # means more trades enter trailing protection before they reverse.
-STOP_LOSS_PHASE1_PCT      = 0.40   # 40% below entry during first 5 mins
+STOP_LOSS_PHASE1_PCT      = 0.25   # 25% below entry — tightened from 40%
 TRAILING_STOP_PCT         = 0.30   # 30% below highest price (default, overridden by dynamic)
-PHASE1_DURATION_SECONDS   = 300    # 5 minutes
+PHASE1_DURATION_SECONDS   = 120    # 2 minutes — faster trail activation
 PHASE2_TRIGGER_GAIN_PCT   = 0.15   # IMPROVED: was 0.30 — trail kicks in at +15% not +30%
 
 # IMPROVED: Income lock sells 50% at 2x instead of 70%

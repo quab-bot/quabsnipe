@@ -83,9 +83,22 @@ class SignalBridge:
         for k in expired:
             _pending_dedup.pop(k, None)
 
-        # For simple CA signals (BlocApe-style) — enrich from DexScreener
+        # For simple CA signals (BlocApe-style) — enrich from DexScreener then check min liq
         if data.source == "simple_ca":
             data = await self._enrich_from_dexscreener(data)
+            if data.liq_usd < 5000:
+                logger.info(
+                    f"[REJECT|@{channel}] {data.token_name} — "
+                    f"liq ${data.liq_usd:.0f} below $5K minimum after enrichment"
+                )
+                if self.telegram:
+                    await self.telegram.notify_signal_rejected(
+                        name=data.token_name, ca=mint,
+                        reason=f"liq_too_low (${data.liq_usd:.0f})",
+                        risk_score=100, mc=data.mc_usd,
+                        age_hours=data.age_hours, liq=data.liq_usd,
+                    )
+                return
 
         # Fetch real token name if missing
         if not data.token_name:
