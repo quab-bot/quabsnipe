@@ -123,6 +123,10 @@ SIGNAL_LIVE    = (_signal_raw == "on")   # True = execute real trades, False = p
 SIGNAL_TRADING = SIGNAL_LIVE             # alias
 SIGNAL_ENABLED = True                    # channel listener always runs — controlled by SIGNAL_TRADING for live/paper
 
+# ── AI scorer settings ────────────────────────────────────────────────────────
+AI_THRESHOLD = float(os.getenv("AI_THRESHOLD", "0.44"))  # min confidence to trade
+AI_ENABLED   = os.getenv("AI_ENABLED", "true").lower() == "true"
+
 # ── Signal channels list (comma-separated, overridable via /addchannel) ─────────
 def _parse_channels(raw: str) -> list:
     """Parse channel list — strips accidental KEY=value prefix from Railway vars."""

@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 import config
 from utils.logger import get_logger
 from paper.paper_engine import PaperEngine
+from ai.scorer import get_scorer
+from ai.scorer import get_scorer
 from utils.models import NewTokenEvent, FilterResult
 from telegram_signals.signal_parser import SignalData
 from telegram_signals.signal_filter import run_signal_filter
@@ -82,6 +84,24 @@ class SignalBridge:
                    if now - v["first_seen"] > _DEDUP_WINDOW_SECS]
         for k in expired:
             _pending_dedup.pop(k, None)
+
+        # ── AI scoring — skip low-confidence signals ──────────────────────────
+        scorer = get_scorer()
+        should_trade, ai_prob = scorer.should_trade(channel=channel)
+        if not should_trade:
+            logger.info(
+                f"[AI SKIP|@{channel}] {name} | "
+                f"AI confidence: {ai_prob:.0%} — below threshold"
+            )
+            self._stats["rejected"] += 1
+            if self.telegram:
+                await self.telegram.notify_signal_rejected(
+                    name=name, ca=mint,
+                    reason=f"AI score too low ({ai_prob:.0%})",
+                    risk_score=int((1 - ai_prob) * 100),
+                    mc=data.mc_usd, age_hours=data.age_hours, liq=data.liq_usd,
+                )
+            return
 
         # For simple CA signals (BlocApe-style) — enrich from DexScreener then check min liq
         if data.source == "simple_ca":
@@ -237,6 +257,7 @@ class SignalBridge:
                 size_pct=final_size,
                 good_flags=good,
                 bad_flags=bad,
+                ai_prob=ai_prob,
             )
 
         event = NewTokenEvent(

@@ -172,6 +172,7 @@ class TelegramBot:
                 "solprice":       self._cmd_solprice,
                 "setmode":        self._cmd_setmode,
                 "paper":          self._cmd_paper,
+                "aistats":        self._cmd_aistats,
             }
             for cmd, fn in cmds.items():
                 app.add_handler(CommandHandler(cmd, fn))
@@ -266,6 +267,7 @@ class TelegramBot:
             "solprice":      lambda: self._reply_solprice(chat_id),
             "setmode":       lambda: self._reply_setmode(chat_id, args),
             "paper":         lambda: self._reply_paper(chat_id, args),
+            "aistats":       lambda: self._reply_aistats(chat_id),
         }.get(cmd)
         if fn:
             try:
@@ -380,6 +382,10 @@ class TelegramBot:
         if not await self._auth(u): return
         await self._reply_paper(str(u.effective_chat.id), c.args or [])
 
+    async def _cmd_aistats(self, u, c):
+        if not await self._auth(u): return
+        await self._reply_aistats(str(u.effective_chat.id))
+
 
     # ── Reply functions ────────────────────────────────────────────────────────
 
@@ -422,6 +428,7 @@ class TelegramBot:
             "/paper               — paper trading stats + P&amp;L\n"
             "/paper reset         — reset paper balance to $40\n"
             "/paper export        — download all paper trades as CSV\n"
+            "/aistats             — AI model stats + current threshold\n"
             "/setstop [%]         — set trailing stop % (e.g. /setstop 25)\n"
             "/blacklist [CA]      — block a token forever\n"
             "/unblacklist [CA]    — remove from blacklist\n\n"
@@ -1257,6 +1264,63 @@ class TelegramBot:
             important=True,
         )
 
+    # ── AI stats ───────────────────────────────────────────────────────────────
+
+    async def _reply_aistats(self, chat_id):
+        import os
+        from pathlib import Path
+        try:
+            from ai.scorer import get_scorer, AI_THRESHOLD
+            scorer  = get_scorer()
+            loaded  = scorer._loaded
+            model   = scorer._model
+            threshold = float(os.getenv("AI_THRESHOLD", str(AI_THRESHOLD)))
+
+            if not loaded or model is None:
+                await self._to(chat_id,
+                    "🤖 <b>AI SCORER</b>\n"
+                    "──────────────────────────\n"
+                    "Status: ❌ Model not loaded\n"
+                    "Run python ai/train.py to train the model."
+                )
+                return
+
+            # Get feature importances
+            feat_names = scorer._feature_names or []
+            importances= list(model.feature_importances_) if hasattr(model, 'feature_importances_') else []
+
+            model_path = Path("ai/signal_model.pkl")
+            trained_on = "unknown"
+            if model_path.exists():
+                import datetime
+                mtime = model_path.stat().st_mtime
+                trained_on = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M UTC")
+
+            msg = (
+                f"🤖 <b>AI SCORER STATS</b>\n"
+                f"──────────────────────────\n"
+                f"Status:    ✅ Active\n"
+                f"Threshold: {threshold:.0%} confidence to trade\n"
+                f"Trained:   {trained_on}\n"
+                f"──────────────────────────\n"
+                f"<b>Feature Importance:</b>\n"
+            )
+            if feat_names and importances:
+                for feat, imp in sorted(zip(feat_names, importances), key=lambda x: -x[1])[:6]:
+                    bar = '█' * int(imp * 30)
+                    msg += f"  {feat}: {imp:.2f} {bar}\n"
+
+            msg += (
+                f"──────────────────────────\n"
+                f"To retrain: export CSV with /paper export\n"
+                f"then run: python ai/train.py\n"
+                f"To adjust threshold: set AI_THRESHOLD in Railway Variables"
+            )
+            await self._to(chat_id, msg)
+
+        except Exception as e:
+            await self._to(chat_id, f"AI stats error: {e}")
+
     # ── Set mode ───────────────────────────────────────────────────────────────
 
     async def _reply_setmode(self, chat_id, args):
@@ -1631,7 +1695,8 @@ class TelegramBot:
                                     age_h: float, snipers: float,
                                     bundles: float, dev: float,
                                     fake_vol: float, size_pct: float,
-                                    good_flags: list, bad_flags: list):
+                                    good_flags: list, bad_flags: list,
+                                    ai_prob: float = 1.0):
         self._signal_history.append({
             "name": name, "ca": ca, "passed": True,
             "verdict": verdict, "score": score,
@@ -1640,10 +1705,11 @@ class TelegramBot:
 
         size_tag = "" if abs(size_pct - 1.0) < 0.05 else f"  📊 {size_pct*100:.0f}% size"
         age_str  = f"{age_h*60:.0f}min"
+        ai_tag   = f"  🤖 {ai_prob:.0%}" if ai_prob < 1.0 else ""
 
         text = (
             f"✅  <b>{_esc(name)}</b>{size_tag}\n"
-            f"Quabsnipe 🎯: <i>Accepted</i>  · Score: {score}\n"
+            f"Quabsnipe 🎯: <i>Accepted</i>  · Score: {score}{ai_tag}\n"
             f"CA: <code>{ca}</code>\n"
             f"MC: {_mc(mc)}  ·  Liq: {_mc(liq)}  ·  Age: {age_str}"
         )
