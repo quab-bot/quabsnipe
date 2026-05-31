@@ -34,9 +34,23 @@ CHANNEL_MAP = {
     "BlocApe_Signal_Calls": 3,
 }
 
-# Good/bad hours from historical analysis
+# Good/bad hours from historical analysis (general)
 GOOD_HOURS = {3, 4, 21}
 BAD_HOURS  = {5, 8, 9, 11, 12, 18, 23}
+
+# Per-channel hour restrictions based on historical data
+CHANNEL_GOOD_HOURS = {
+    "solearlytrending": {1, 2, 4, 6, 7},      # profitable hours only
+    "soltrenchtrending": None,                  # no restriction — generally good
+    "trenchfree": None,
+    "BlocApe_Signal_Calls": None,
+    "blocape_signal_calls": None,
+}
+
+# Per-channel bad hours — hard skip regardless of score
+CHANNEL_BAD_HOURS = {
+    "solearlytrending": {8, 9, 13, 15, 17, 20, 21, 22},  # worst hours
+}
 
 
 class SignalScorer:
@@ -100,7 +114,24 @@ class SignalScorer:
         """
         Returns (should_trade, probability).
         Uses AI_THRESHOLD env var to decide.
+        Also applies per-channel hour restrictions.
         """
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+
+        hour = dt.hour
+        ch   = channel.lower().replace("-", "_")
+
+        # Check channel-specific bad hours first — hard skip
+        bad = CHANNEL_BAD_HOURS.get(ch, CHANNEL_BAD_HOURS.get(channel, set()))
+        if bad and hour in bad:
+            return False, 0.0
+
+        # Check channel-specific good hours — only trade in these
+        good = CHANNEL_GOOD_HOURS.get(ch, CHANNEL_GOOD_HOURS.get(channel))
+        if good is not None and hour not in good:
+            return False, 0.0
+
         prob = self.score(channel, dt)
         return prob >= AI_THRESHOLD, prob
 
