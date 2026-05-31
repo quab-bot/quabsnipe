@@ -27,7 +27,15 @@ logger = get_logger("telegram_bot")
 DEXSCREENER = "https://dexscreener.com/solana"
 SOLSCAN     = "https://solscan.io/token"
 
-_ROUTINE_TTL = 120
+_ROUTINE_TTL   = 120    # 2 minutes — routine messages
+_IMPORTANT_TTL = 1800   # 30 minutes — signal/trade notifications
+_KEEP_FOREVER  = {      # these never delete
+    'RESTARTED', 'PAUSED', 'RESUMED', 'HEARTBEAT', 'AUTO-PAUSED'
+}
+_IMPORTANT_TTL = 1800   # 30 minutes — signal/trade notifications
+_KEEP_FOREVER  = {      # these never delete
+    "RESTARTED", "PAUSED", "RESUMED", "HEARTBEAT", "AUTO-PAUSED"
+}
 _IMPORTANT_KEYWORDS = (
     "SIGNAL PASSED", "SIGNAL ACCEPTED", "24H STATS", "P&L", "TRADE OPENED",
     "TAKE PROFIT", "STOP LOSS", "TRAILING STOP", "MANUAL CLOSE", "Online",
@@ -1682,9 +1690,12 @@ class TelegramBot:
                 chat_id=chat_id, text=text[:4000], parse_mode="HTML",
             )
             msg_id = msg.message_id
-            if not important:
+            # Decide TTL
+            keep = any(kw in text for kw in _KEEP_FOREVER)
+            if not keep:
+                ttl  = _IMPORTANT_TTL if important else _ROUTINE_TTL
                 task = asyncio.create_task(
-                    self._auto_delete(chat_id, msg_id, _ROUTINE_TTL)
+                    self._auto_delete(chat_id, msg_id, ttl)
                 )
                 self._cleanup_tasks.append(task)
                 self._cleanup_tasks = [t for t in self._cleanup_tasks if not t.done()]
