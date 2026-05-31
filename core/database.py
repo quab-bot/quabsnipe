@@ -523,23 +523,25 @@ def paper_get_stats() -> dict:
             ORDER BY final_pnl_pct ASC LIMIT 1
         """).fetchone()
 
+        # AI vs non-AI breakdown — do this before closing conn
+        try:
+            ai_row = conn.execute("""
+                SELECT
+                    SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as ai_wins,
+                    SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd <= 0 AND status='closed' THEN 1 ELSE 0 END) as ai_losses,
+                    SUM(CASE WHEN ai_filtered=1 THEN 1 ELSE 0 END) as ai_total,
+                    SUM(CASE WHEN ai_filtered=0 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as noai_wins,
+                    SUM(CASE WHEN ai_filtered=0 THEN 1 ELSE 0 END) as noai_total
+                FROM paper_trades WHERE status='closed'
+            """).fetchone()
+        except Exception:
+            ai_row = None
         conn.close()
 
     stats = dict(row) if row else {}
     # Coerce all numeric fields to avoid None comparison errors
-    for k in ("total_trades","open_positions","wins","losses","total_pnl","avg_pnl_pct","best_peak","avg_hold_hours"):
+    for k in ("total_trades","open_positions","wins","losses","total_pnl","total_invested","avg_pnl_pct","best_peak","avg_hold_hours"):
         stats[k] = float(stats.get(k) or 0)
-    # AI vs non-AI breakdown
-    ai_row = conn.execute("""
-        SELECT
-            SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as ai_wins,
-            SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd <= 0 AND status='closed' THEN 1 ELSE 0 END) as ai_losses,
-            SUM(CASE WHEN ai_filtered=1 THEN 1 ELSE 0 END) as ai_total,
-            SUM(CASE WHEN ai_filtered=0 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as noai_wins,
-            SUM(CASE WHEN ai_filtered=0 THEN 1 ELSE 0 END) as noai_total
-        FROM paper_trades WHERE status='closed'
-    """).fetchone()
-    conn.close()
 
     stats["by_channel"] = {r["channel"]: dict(r) for r in by_ch}
     if ai_row:

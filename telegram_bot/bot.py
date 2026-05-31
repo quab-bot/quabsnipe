@@ -173,6 +173,7 @@ class TelegramBot:
                 "setmode":        self._cmd_setmode,
                 "paper":          self._cmd_paper,
                 "aistats":        self._cmd_aistats,
+                "clear":          self._cmd_clear,
             }
             for cmd, fn in cmds.items():
                 app.add_handler(CommandHandler(cmd, fn))
@@ -268,6 +269,7 @@ class TelegramBot:
             "setmode":       lambda: self._reply_setmode(chat_id, args),
             "paper":         lambda: self._reply_paper(chat_id, args),
             "aistats":       lambda: self._reply_aistats(chat_id),
+            "clear":         lambda: self._reply_clear(chat_id),
         }.get(cmd)
         if fn:
             try:
@@ -386,6 +388,10 @@ class TelegramBot:
         if not await self._auth(u): return
         await self._reply_aistats(str(u.effective_chat.id))
 
+    async def _cmd_clear(self, u, c):
+        if not await self._auth(u): return
+        await self._reply_clear(str(u.effective_chat.id))
+
 
     # ── Reply functions ────────────────────────────────────────────────────────
 
@@ -429,6 +435,7 @@ class TelegramBot:
             "/paper reset         — reset paper balance to $40\n"
             "/paper export        — download all paper trades as CSV\n"
             "/aistats             — AI model stats + current threshold\n"
+            "/clear              — clear bot messages from chat\n"
             "/setstop [%]         — set trailing stop % (e.g. /setstop 25)\n"
             "/blacklist [CA]      — block a token forever\n"
             "/unblacklist [CA]    — remove from blacklist\n\n"
@@ -1614,6 +1621,31 @@ class TelegramBot:
             f"Price now:    ${current_price:.8f}\n"
             f"{emoji} Since exit: {pct_change:+.1f}% — {missed}",
         )
+
+    # ── Clear messages ────────────────────────────────────────────────────────
+
+    async def _reply_clear(self, chat_id):
+        """Delete the last 50 bot messages from the chat."""
+        try:
+            deleted = 0
+            async for msg in self._app.bot.get_updates():
+                pass  # flush
+            # Send a placeholder then delete everything recent
+            sent = await self._app.bot.send_message(
+                chat_id=chat_id,
+                text="🧹 Clearing..."
+            )
+            # Delete recent messages by iterating backwards from current msg id
+            for msg_id in range(sent.message_id, max(sent.message_id - 100, 0), -1):
+                try:
+                    await self._app.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    deleted += 1
+                except Exception:
+                    pass
+                if deleted >= 50:
+                    break
+        except Exception as e:
+            await self._to(chat_id, f"Clear error: {e}")
 
     # ── Auth ───────────────────────────────────────────────────────────────────
 
