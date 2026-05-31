@@ -1627,15 +1627,8 @@ class TelegramBot:
     async def _reply_clear(self, chat_id):
         """Delete the last 50 bot messages from the chat."""
         try:
+            sent = await self._app.bot.send_message(chat_id=chat_id, text="🧹 Clearing...")
             deleted = 0
-            async for msg in self._app.bot.get_updates():
-                pass  # flush
-            # Send a placeholder then delete everything recent
-            sent = await self._app.bot.send_message(
-                chat_id=chat_id,
-                text="🧹 Clearing..."
-            )
-            # Delete recent messages by iterating backwards from current msg id
             for msg_id in range(sent.message_id, max(sent.message_id - 100, 0), -1):
                 try:
                     await self._app.bot.delete_message(chat_id=chat_id, message_id=msg_id)
