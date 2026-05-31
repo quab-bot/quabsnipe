@@ -288,13 +288,16 @@ class SignalBridge:
                 "channel":         channel,
             }
         )
-        # ── Paper engine — always runs regardless of live/paper mode ─────────
-        if self.paper_engine:
+        # ── Paper engine — check if paper trading is enabled ──────────────────
+        import os as _os
+        _paper_enabled = _os.getenv("PAPER_TRADING_ENABLED", "true").strip().lower() != "false"
+        if self.paper_engine and _paper_enabled:
             asyncio.create_task(
                 self.paper_engine.open_trade(
                     mint=mint, name=name,
                     symbol=data.token_symbol or (name.split()[0][:6].upper() if name else mint[:6]),
                     channel=channel, score=result.risk_score,
+                    ai_prob=ai_prob,
                 )
             )
 

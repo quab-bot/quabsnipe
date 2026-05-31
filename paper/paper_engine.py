@@ -12,7 +12,7 @@ import aiohttp
 import config
 from utils.logger import get_logger
 from core.database import (
-    paper_get_trades_needing_check, paper_update_post_check,
+    paper_get_trades_needing_check, paper_update_post_check, paper_record_refill,
     paper_get_balance, paper_update_balance, paper_reset as db_reset,
     paper_open_trade, paper_update_trade, paper_close_trade,
     paper_get_open_trades, paper_get_stats,
@@ -68,7 +68,7 @@ class PaperEngine:
     # ── Open a paper trade ─────────────────────────────────────────────────────
 
     async def open_trade(self, mint: str, name: str, symbol: str,
-                         channel: str, score: int) -> dict:
+                         channel: str, score: int, ai_prob: float = None) -> dict:
 
         if mint in self._traded:
             return {"success": False, "reason": "Already traded this token in this session"}
@@ -84,6 +84,7 @@ class PaperEngine:
         if bal < PAPER_POSITION_USD:
             # Auto-refill — top up to $40 so data collection never stops
             logger.info(f"📋 PAPER auto-refill: ${bal:.2f} → ${PAPER_STARTING_BALANCE:.2f}")
+            paper_record_refill()
             paper_update_balance(PAPER_STARTING_BALANCE)
             bal = PAPER_STARTING_BALANCE
             if self._on_notify:
@@ -106,6 +107,7 @@ class PaperEngine:
             usd_spent=PAPER_POSITION_USD,
             tokens_held=tokens_held,
             fixed_stop_price=fixed_stop_price,
+            ai_prob=ai_prob,
         )
 
         new_bal = bal - PAPER_POSITION_USD

@@ -1128,6 +1128,28 @@ class TelegramBot:
         /paper reset    — reset paper balance back to $40
         /paper export   — download all trades as CSV
         """
+        if args and args[0].lower() == "on":
+            import os
+            os.environ["PAPER_TRADING_ENABLED"] = "true"
+            await self._to(chat_id,
+                "📄 <b>PAPER TRADING ON</b>\n"
+                "──────────────────────────\n"
+                "Paper trades will open on every signal.\n"
+                "Real trades still depend on SIGNAL_TRADING setting."
+            )
+            return
+
+        if args and args[0].lower() == "off":
+            import os
+            os.environ["PAPER_TRADING_ENABLED"] = "false"
+            await self._to(chat_id,
+                "⏸ <b>PAPER TRADING OFF</b>\n"
+                "──────────────────────────\n"
+                "Paper trades paused.\n"
+                "Real trades still depend on SIGNAL_TRADING setting."
+            )
+            return
+
         if args and args[0].lower() == "export":
             if not self._paper_export:
                 await self._to(chat_id, "Export not available.")
@@ -1171,25 +1193,28 @@ class TelegramBot:
 
         bal        = s.get("balance", 0)
         starting   = s.get("starting", 40)
-        total_pnl  = float(s.get("total_pnl") or 0)
-        total      = int(s.get("total_trades") or 0)
-        wins       = int(s.get("wins") or 0)
-        losses     = int(s.get("losses") or 0)
-        win_rate   = float(s.get("win_rate") or 0)
-        open_pos   = int(s.get("open_positions") or 0)
-        by_ch      = s.get("by_channel") or {}
-        best       = s.get("best_trade")
-        worst      = s.get("worst_trade")
+        total_pnl     = float(s.get("total_pnl") or 0)
+        total_invested= float(s.get("total_invested") or 0)
+        total         = int(s.get("total_trades") or 0)
+        wins          = int(s.get("wins") or 0)
+        losses        = int(s.get("losses") or 0)
+        win_rate      = float(s.get("win_rate") or 0)
+        open_pos      = int(s.get("open_positions") or 0)
+        by_ch         = s.get("by_channel") or {}
+        best          = s.get("best_trade")
+        worst         = s.get("worst_trade")
 
+        # Real P&L from closed trades only (ignores auto-refills)
         pnl_emoji  = "📈" if total_pnl >= 0 else "📉"
-        bal_change = bal - starting
+        roi        = (total_pnl / total_invested * 100) if total_invested > 0 else 0
 
         msg = (
             f"📄 <b>PAPER TRADING STATS</b>\n"
             f"──────────────────────────\n"
-            f"Balance:  <b>${bal:.2f}</b> ({'+' if bal_change >= 0 else ''}{bal_change:.2f} from ${starting:.0f})\n"
-            f"{pnl_emoji} Total P&amp;L: ${total_pnl:+.2f}\n"
-            f"Open:     {open_pos} position(s)\n"
+            f"Current balance: <b>${bal:.2f}</b>\n"
+            f"{pnl_emoji} Real P&amp;L (closed trades): ${total_pnl:+.2f}\n"
+            f"Total invested: ${total_invested:.2f} | ROI: {roi:+.1f}%\n"
+            f"Open: {open_pos} position(s)\n"
             f"──────────────────────────\n"
             f"Trades:   {total} total | {wins}W / {losses}L\n"
             f"Win rate: {win_rate:.1f}%\n"
@@ -1200,6 +1225,20 @@ class TelegramBot:
             for ch, data in by_ch.items():
                 ch_wr = data['wins'] / data['trades'] * 100 if data['trades'] > 0 else 0
                 msg += f"@{ch}: {data['trades']} trades | {ch_wr:.0f}% WR | ${data['pnl']:+.2f}\n"
+
+        # AI vs non-AI comparison
+        ai_t  = int(s.get("ai_trades") or 0)
+        ai_wr = float(s.get("ai_win_rate") or 0)
+        noai_t= int(s.get("noai_trades") or 0)
+        noai_wr=float(s.get("noai_win_rate") or 0)
+        if ai_t > 0 or noai_t > 0:
+            msg += "──────────────────────────\n<b>AI Filter Impact</b>\n"
+        if noai_t > 0:
+            msg += f"Before AI: {noai_t} trades | {noai_wr:.1f}% WR\n"
+        if ai_t > 0:
+            diff = ai_wr - noai_wr if noai_t > 0 else 0
+            arrow = "📈" if diff > 0 else "📉" if diff < 0 else "➡️"
+            msg += f"After AI:  {ai_t} trades | {ai_wr:.1f}% WR {arrow}\n"
 
         if best:
             msg += f"──────────────────────────\n"

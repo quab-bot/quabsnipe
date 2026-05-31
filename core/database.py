@@ -319,7 +319,10 @@ def init_paper_tables():
                 pct_1h_after        REAL,
                 pct_2h_after        REAL,
                 pct_24h_after       REAL,
-                post_check_done     INTEGER DEFAULT 0
+                post_check_done     INTEGER DEFAULT 0,
+                ai_filtered         INTEGER DEFAULT 0,
+                ai_prob             REAL DEFAULT NULL,
+                ai_model_version    TEXT DEFAULT NULL
             );
 
             CREATE TABLE IF NOT EXISTS paper_ledger (
@@ -365,6 +368,31 @@ def paper_update_balance(new_balance: float):
         conn.commit()
         conn.close()
 
+def paper_get_refill_count() -> int:
+    """Count how many times balance was auto-refilled."""
+    with _lock:
+        conn = get_conn()
+        try:
+            row = conn.execute("SELECT refill_count FROM paper_ledger WHERE id = 1").fetchone()
+            conn.close()
+            return int(row["refill_count"]) if row and row["refill_count"] else 0
+        except Exception:
+            conn.close()
+            return 0
+
+def paper_record_refill():
+    """Increment refill counter."""
+    with _lock:
+        conn = get_conn()
+        try:
+            conn.execute("ALTER TABLE paper_ledger ADD COLUMN refill_count INTEGER DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass
+        conn.execute("UPDATE paper_ledger SET refill_count = COALESCE(refill_count, 0) + 1 WHERE id = 1")
+        conn.commit()
+        conn.close()
+
 
 def paper_reset(starting: float = 40.0):
     with _lock:
@@ -381,16 +409,19 @@ def paper_reset(starting: float = 40.0):
 
 def paper_open_trade(mint: str, name: str, symbol: str, channel: str, score: int,
                      entry_price: float, usd_spent: float, tokens_held: float,
-                     fixed_stop_price: float) -> int:
+                     fixed_stop_price: float, ai_prob: float = None) -> int:
+    ai_filtered = 1 if ai_prob is not None else 0
     with _lock:
         conn = get_conn()
         cur = conn.execute("""
             INSERT INTO paper_trades
             (mint, name, symbol, channel, score, entry_price_usd, entry_time,
-             usd_spent, tokens_held, highest_price_usd, fixed_stop_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             usd_spent, tokens_held, highest_price_usd, fixed_stop_price,
+             ai_filtered, ai_prob, ai_model_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (mint, name, symbol, channel, score, entry_price, _now(),
-              usd_spent, tokens_held, entry_price, fixed_stop_price))
+              usd_spent, tokens_held, entry_price, fixed_stop_price,
+              ai_filtered, ai_prob, "v1"))
         conn.commit()
         trade_id = cur.lastrowid
         conn.close()
@@ -465,6 +496,7 @@ def paper_get_stats() -> dict:
                 SUM(CASE WHEN final_pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN final_pnl_usd <= 0 AND status='closed' THEN 1 ELSE 0 END) as losses,
                 SUM(COALESCE(final_pnl_usd, 0)) as total_pnl,
+                SUM(COALESCE(usd_spent, 0)) as total_invested,
                 AVG(CASE WHEN final_pnl_pct IS NOT NULL THEN final_pnl_pct END) as avg_pnl_pct,
                 MAX(peak_multiplier) as best_peak,
                 AVG(hold_hours) as avg_hold_hours
@@ -497,7 +529,28 @@ def paper_get_stats() -> dict:
     # Coerce all numeric fields to avoid None comparison errors
     for k in ("total_trades","open_positions","wins","losses","total_pnl","avg_pnl_pct","best_peak","avg_hold_hours"):
         stats[k] = float(stats.get(k) or 0)
+    # AI vs non-AI breakdown
+    ai_row = conn.execute("""
+        SELECT
+            SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as ai_wins,
+            SUM(CASE WHEN ai_filtered=1 AND final_pnl_usd <= 0 AND status='closed' THEN 1 ELSE 0 END) as ai_losses,
+            SUM(CASE WHEN ai_filtered=1 THEN 1 ELSE 0 END) as ai_total,
+            SUM(CASE WHEN ai_filtered=0 AND final_pnl_usd > 0 THEN 1 ELSE 0 END) as noai_wins,
+            SUM(CASE WHEN ai_filtered=0 THEN 1 ELSE 0 END) as noai_total
+        FROM paper_trades WHERE status='closed'
+    """).fetchone()
+    conn.close()
+
     stats["by_channel"] = {r["channel"]: dict(r) for r in by_ch}
+    if ai_row:
+        ai_t  = int(ai_row["ai_total"] or 0)
+        ai_w  = int(ai_row["ai_wins"] or 0)
+        noai_t= int(ai_row["noai_total"] or 0)
+        noai_w= int(ai_row["noai_wins"] or 0)
+        stats["ai_trades"]    = ai_t
+        stats["ai_win_rate"]  = (ai_w / ai_t * 100) if ai_t > 0 else 0
+        stats["noai_trades"]  = noai_t
+        stats["noai_win_rate"]= (noai_w / noai_t * 100) if noai_t > 0 else 0
     stats["best_trade"] = dict(best) if best else None
     stats["worst_trade"] = dict(worst) if worst else None
     total  = int(stats.get("total_trades", 0))
@@ -584,6 +637,7 @@ def paper_export_csv() -> str:
                 price_1h_after, pct_1h_after,
                 price_2h_after, pct_2h_after,
                 price_24h_after, pct_24h_after,
+                ai_filtered, ai_prob,
                 status
             FROM paper_trades
             ORDER BY entry_time ASC

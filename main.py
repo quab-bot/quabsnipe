@@ -107,6 +107,24 @@ class SignalBot:
                 asyncio.create_task(monitor.start())
                 logger.info(f"✅ Signal monitor active → @{ch}")
 
+            # ── Private groups ────────────────────────────────────────────────
+            for group_cfg in config.SIGNAL_GROUPS:
+                if not group_cfg.strip():
+                    continue
+                parts        = group_cfg.split(":")
+                invite_hash  = parts[0].strip()
+                allowed      = [u.strip() for u in parts[1].split(",")] if len(parts) > 1 else []
+                gmonitor = ChannelMonitor(
+                    client=self._session.get_client(),
+                    channel_username=invite_hash,
+                    on_signal=self._signal_bridge.on_signal,
+                    allowed_users=allowed,
+                    is_invite_link=True,
+                )
+                self._monitors.append(gmonitor)
+                asyncio.create_task(gmonitor.start())
+                logger.info(f"✅ Group monitor active → +{invite_hash} | filter: {allowed}")
+
         except Exception as e:
             logger.error(f"Signal monitor failed: {e}")
             await self.telegram.notify_error(f"Signal monitor failed to start: {e}")

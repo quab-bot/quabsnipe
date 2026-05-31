@@ -30,10 +30,15 @@ class ChannelMonitor:
         client: TelegramClient,
         channel_username: str,
         on_signal: Callable[[SignalData], Awaitable[None]],
+        allowed_users: list[str] | None = None,
+        is_invite_link: bool = False,
     ):
         self.client           = client
         self.channel_username = channel_username.lstrip("@").strip()
         self.on_signal        = on_signal
+        # allowed_users: only process messages from these usernames (for groups)
+        self.allowed_users    = [u.lstrip("@").lower() for u in (allowed_users or [])]
+        self.is_invite_link   = is_invite_link  # True for t.me/+... links
         self._running         = False
         self._channel_id      = None
         self._start_time      = datetime.now(timezone.utc)
@@ -52,11 +57,24 @@ class ChannelMonitor:
         logger.info(f"Channel monitor → @{self.channel_username}")
 
         try:
-            entity           = await self.client.get_entity(self.channel_username)
+            if self.is_invite_link:
+                # Private group via invite link — join first then get entity
+                invite_hash = self.channel_username.split("+")[-1] if "+" in self.channel_username else self.channel_username
+                try:
+                    result = await self.client(
+                        __import__("telethon.tl.functions.messages", fromlist=["ImportChatInviteRequest"]).ImportChatInviteRequest(invite_hash)
+                    )
+                    entity = result.chats[0]
+                except Exception:
+                    # Already a member — just get entity by full link
+                    entity = await self.client.get_entity(f"t.me/+{invite_hash}")
+            else:
+                entity = await self.client.get_entity(self.channel_username)
             self._channel_id = entity.id
-            logger.info(f"✓ Channel: '{entity.title}' id={entity.id}")
+            display = f"@{self.channel_username}" if not self.is_invite_link else f"group/{entity.id}"
+            logger.info(f"✓ Group/Channel: '{entity.title}' id={entity.id}")
         except Exception as e:
-            logger.error(f"Cannot resolve @{self.channel_username}: {e}")
+            logger.error(f"Cannot resolve {self.channel_username}: {e}")
             return
 
         self.client.add_event_handler(
@@ -137,6 +155,26 @@ class ChannelMonitor:
                 f"no buy button and no CA found in text"
             )
             return
+
+        # Filter by allowed users if configured (for groups)
+        if self.allowed_users:
+            sender = getattr(msg, "sender", None) or getattr(msg, "from_id", None)
+            sender_username = ""
+            if hasattr(sender, "username") and sender.username:
+                sender_username = sender.username.lower()
+            elif hasattr(msg, "sender_id"):
+                # Try to get username from sender_id
+                try:
+                    user = await self.client.get_entity(msg.sender_id)
+                    sender_username = (getattr(user, "username", "") or "").lower()
+                except Exception:
+                    pass
+            if sender_username not in self.allowed_users:
+                logger.debug(
+                    f"[FILTERED|@{self.channel_username}] msg_id={msg.id} — "
+                    f"sender @{sender_username} not in allowed list"
+                )
+                return
 
         logger.info(
             f"[{source}|@{self.channel_username}] Signal msg_id={msg.id} | "

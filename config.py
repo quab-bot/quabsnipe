@@ -123,6 +123,15 @@ SIGNAL_LIVE    = (_signal_raw == "on")   # True = execute real trades, False = p
 SIGNAL_TRADING = SIGNAL_LIVE             # alias
 SIGNAL_ENABLED = True                    # channel listener always runs — controlled by SIGNAL_TRADING for live/paper
 
+# ── Private group signals ──────────────────────────────────────────────────────
+# Groups monitored via invite link — format: "invite_hash:user1,user2"
+# Example: "vL0kDCn0iYJlMzdk:defimaestro90"
+SIGNAL_GROUPS = [
+    g.strip() for g in
+    os.getenv("SIGNAL_GROUPS", "vL0kDCn0iYJlMzdk:defimaestro90").split(";")
+    if g.strip()
+]
+
 # ── AI scorer settings ────────────────────────────────────────────────────────
 AI_THRESHOLD = float(os.getenv("AI_THRESHOLD", "0.44"))  # min confidence to trade
 AI_ENABLED   = os.getenv("AI_ENABLED", "true").lower() == "true"
