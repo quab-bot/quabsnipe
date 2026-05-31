@@ -310,15 +310,6 @@ class SignalBridge:
                 f"📋 PAPER | {name} | CA: {mint[:16]}... | "
                 f"Score:{result.risk_score} — SIGNAL_TRADING=off, no real trade placed"
             )
-            if self.telegram and hasattr(self.telegram, 'notify_paper_trade'):
-                await self.telegram.notify_paper_trade(
-                    mint=mint,
-                    source=f"telegram_{channel}",
-                    score=result.risk_score,
-                    verdict=result.verdict,
-                    trade_sol=0.0,
-                    trade_usd=0.0,
-                )
             return
 
         trade_result = await self.coordinator.on_buy_signal(filter_res)
