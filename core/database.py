@@ -286,6 +286,21 @@ def init_paper_tables():
     """Create paper trading tables — called at startup."""
     with _lock:
         conn = get_conn()
+        # Migrate existing tables — add new columns if missing
+        migrations = [
+            "ALTER TABLE paper_trades ADD COLUMN ai_filtered INTEGER DEFAULT 0",
+            "ALTER TABLE paper_trades ADD COLUMN ai_prob REAL DEFAULT NULL",
+            "ALTER TABLE paper_trades ADD COLUMN ai_model_version TEXT DEFAULT NULL",
+            "ALTER TABLE paper_trades ADD COLUMN total_invested REAL DEFAULT 0",
+            "ALTER TABLE paper_ledger ADD COLUMN refill_count INTEGER DEFAULT 0",
+        ]
+        for sql in migrations:
+            try:
+                conn.execute(sql)
+                conn.commit()
+            except Exception:
+                pass  # column already exists
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS paper_trades (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
