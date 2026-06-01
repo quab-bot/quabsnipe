@@ -333,10 +333,21 @@ class SignalBot:
                     pnl_pct=data["pnl_pct"], peak_mult=data["peak_mult"],
                     tp_levels=data["tp_levels"], balance=data["balance"],
                 )
+            elif event_type == "paper_drawdown":
+                await self.telegram.notify_paper_drawdown(
+                    balance=data["balance"],
+                    floor=data["floor"],
+                    starting=data["starting"],
+                )
             elif event_type == "paper_refill":
                 await self.telegram.notify_paper_refill(
                     old_balance=data["old_balance"],
                     new_balance=data["new_balance"],
+                )
+            elif event_type == "paper_tight_exit":
+                await self.telegram.notify_paper_tight_exit(
+                    name=data["name"], symbol=data["symbol"],
+                    gain_pct=data["gain_pct"], age_sec=data["age_sec"],
                 )
             elif event_type == "paper_post_check":
                 await self.telegram.notify_paper_post_check(

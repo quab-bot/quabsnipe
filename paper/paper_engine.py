@@ -81,6 +81,23 @@ class PaperEngine:
             return {"success": False, "reason": f"Max {config.MAX_OPEN_TRADES} paper positions open"}
 
         bal = paper_get_balance()
+        # Drawdown protection — if balance drops below 75% of starting, pause and notify
+        import os as _dpos
+        _drawdown_limit = float(_dpos.getenv("PAPER_DRAWDOWN_LIMIT", "0.75"))
+        _drawdown_floor = PAPER_STARTING_BALANCE * _drawdown_limit
+        if bal < _drawdown_floor and bal > 0:
+            logger.warning(
+                f"⛔ PAPER DRAWDOWN LIMIT | Balance ${bal:.2f} below "
+                f"${_drawdown_floor:.2f} ({_drawdown_limit*100:.0f}% floor) — pausing"
+            )
+            if self._on_notify:
+                await self._on_notify("paper_drawdown", {
+                    "balance": bal,
+                    "floor": _drawdown_floor,
+                    "starting": PAPER_STARTING_BALANCE,
+                })
+            return {"success": False, "reason": f"Drawdown limit hit (${bal:.2f})"}
+
         if bal < PAPER_POSITION_USD:
             # Auto-refill — top up to $40 so data collection never stops
             logger.info(f"📋 PAPER auto-refill: ${bal:.2f} → ${PAPER_STARTING_BALANCE:.2f}")
@@ -260,6 +277,32 @@ class PaperEngine:
                 peak_multiplier=multiplier,
                 trailing_stop_price=pos["trailing_stop_price"],
             )
+
+        # ── 2-minute momentum checkpoint ──────────────────────────────────────
+        # At 2min: +20% = confirmed momentum (leave alone)
+        #          <20% = no momentum (tight -5% exit from peak)
+        if pos["phase"] == 1 and 110 <= age_sec <= 180:
+            if gain_pct >= 0.20:
+                if not pos.get("momentum_confirmed"):
+                    pos["momentum_confirmed"] = True
+                    logger.info(
+                        f"🚀 PAPER MOMENTUM | {pos['symbol']} | "
+                        f"+{gain_pct*100:.0f}% at 2min — confirmed, letting run"
+                    )
+            elif not pos.get("tight_exit") and not pos.get("momentum_confirmed"):
+                pos["tight_exit"]          = True
+                tight_stop                 = pos["highest_price_usd"] * 0.95
+                pos["trailing_stop_price"] = tight_stop
+                paper_update_trade(pos["id"], trailing_stop_price=tight_stop)
+                logger.info(
+                    f"⚠️ PAPER TIGHT EXIT | {pos['symbol']} | "
+                    f"Only +{gain_pct*100:.1f}% at 2min — tight stop: ${tight_stop:.8f}"
+                )
+                if self._on_notify:
+                    await self._on_notify("paper_tight_exit", {
+                        "name": pos["name"], "symbol": pos["symbol"],
+                        "gain_pct": round(gain_pct * 100, 1), "age_sec": int(age_sec),
+                    })
 
         # Phase 1 → 2
         if pos["phase"] == 1:

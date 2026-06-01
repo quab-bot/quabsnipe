@@ -1603,6 +1603,19 @@ class TelegramBot:
         )
         await self._to(chat_id, msg, important=True)
 
+    async def notify_paper_drawdown(self, balance: float, floor: float, starting: float):
+        pct = (balance / starting * 100)
+        await self._send(
+            f"⛔ <b>PAPER DRAWDOWN LIMIT HIT</b>\n"
+            f"──────────────────────────\n"
+            f"Balance: ${balance:.2f} ({pct:.0f}% of ${starting:.0f})\n"
+            f"Floor: ${floor:.2f} (75% of starting)\n"
+            f"Paper trading paused.\n\n"
+            f"Use /paper reset to restart with $40\n"
+            f"or adjust PAPER_DRAWDOWN_LIMIT in Railway Variables.",
+            important=True,
+        )
+
     async def notify_paper_refill(self, old_balance: float, new_balance: float):
         await self._send(
             f"♻️ <b>PAPER BALANCE REFILLED</b>\n"
@@ -1610,6 +1623,17 @@ class TelegramBot:
             f"Was: ${old_balance:.2f}\n"
             f"Now: ${new_balance:.2f}\n"
             f"Data collection continues automatically.",
+        )
+
+    async def notify_paper_tight_exit(self, name: str, symbol: str,
+                                        gain_pct: float, age_sec: int):
+        await self._send(
+            f"⚠️ <b>TIGHT EXIT ACTIVATED</b>\n"
+            f"──────────────────────────\n"
+            f"<b>{_esc(name)} (${_esc(symbol)})</b>\n"
+            f"Only +{gain_pct:.1f}% at {age_sec}s (2min check)\n"
+            f"Switched to tight -5% stop from peak.\n"
+            f"Will exit quickly if it drops.",
         )
 
     async def notify_paper_post_check(self, name: str, symbol: str, hours: int,
