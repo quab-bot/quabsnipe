@@ -38,18 +38,19 @@ CHANNEL_MAP = {
 GOOD_HOURS = {3, 4, 21}
 BAD_HOURS  = {5, 8, 9, 11, 12, 18, 23}
 
-# Per-channel hour restrictions based on historical data
+# Per-channel hour restrictions — updated June 4 from data analysis
 CHANNEL_GOOD_HOURS = {
-    "solearlytrending": {1, 2, 4, 6, 7},      # profitable hours only
-    "soltrenchtrending": None,                  # no restriction — generally good
-    "trenchfree": None,
+    "solearlytrending":     {1, 2, 4, 6, 7},
+    "soltrenchtrending":    None,   # no good-hour restriction — use bad-hour block instead
+    "trenchfree":           None,
     "BlocApe_Signal_Calls": None,
     "blocape_signal_calls": None,
 }
 
-# Per-channel bad hours — hard skip regardless of score
+# Per-channel bad hours — hard skip regardless of AI score
 CHANNEL_BAD_HOURS = {
-    "solearlytrending": {8, 9, 13, 15, 17, 20, 21, 22},  # worst hours
+    "solearlytrending":  {8, 9, 13, 15, 17, 20, 21, 22},
+    "soltrenchtrending": {8, 13, 15, 20, 21},   # worst hours from June 4 data
 }
 
 
@@ -74,19 +75,28 @@ class SignalScorer:
             logger.error(f"AI scorer load error: {e}")
 
     def _build_features(self, channel: str, dt: datetime) -> dict:
-        hour = dt.hour
-        dow  = dt.weekday()
+        hour         = dt.hour
+        dow          = dt.weekday()
+        ch_id        = CHANNEL_MAP.get(channel, CHANNEL_MAP.get(channel.lower(), 4))
+        is_soltrench = 1 if ch_id == 0 else 0
+        _good_h      = {0, 3, 6, 7, 11, 12, 16, 22}
+        _bad_h       = {8, 13, 15, 20, 21}
         return {
-            "hour":         hour,
-            "dow":          dow,
-            "is_weekend":   1 if dow >= 5 else 0,
-            "is_good_hour": 1 if hour in GOOD_HOURS else 0,
-            "is_bad_hour":  1 if hour in BAD_HOURS else 0,
-            "channel_id":   CHANNEL_MAP.get(channel, 4),
-            "hour_sin":     math.sin(2 * math.pi * hour / 24),
-            "hour_cos":     math.cos(2 * math.pi * hour / 24),
-            "dow_sin":      math.sin(2 * math.pi * dow / 7),
-            "dow_cos":      math.cos(2 * math.pi * dow / 7),
+            "hour":           hour,
+            "dow":            dow,
+            "is_weekend":     1 if dow >= 5 else 0,
+            "channel_id":     ch_id,
+            "hour_sin":       math.sin(2 * math.pi * hour / 24),
+            "hour_cos":       math.cos(2 * math.pi * hour / 24),
+            "dow_sin":        math.sin(2 * math.pi * dow / 7),
+            "dow_cos":        math.cos(2 * math.pi * dow / 7),
+            "is_soltrench":   is_soltrench,
+            "is_good_hour":   1 if (is_soltrench and hour in _good_h) else 0,
+            "is_bad_hour":    1 if (is_soltrench and hour in _bad_h) else 0,
+            "is_best_hour":   1 if hour in {3, 12, 16} else 0,
+            "hour_in_asia":   1 if 0 <= hour <= 8 else 0,
+            "hour_in_london": 1 if 8 <= hour <= 16 else 0,
+            "hour_in_us":     1 if 16 <= hour <= 23 else 0,
         }
 
     def score(self, channel: str, dt: datetime = None) -> float:
